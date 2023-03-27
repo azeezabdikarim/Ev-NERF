@@ -1,3 +1,7 @@
+#special files to ignore
+data/nerf_example_data.zip
+box_data/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
