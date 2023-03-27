@@ -113,8 +113,8 @@ def load_uzh_data():
     events_list = []
     image_pairs = []
 
-    # for i in range(len(packets)):
-    for i in range(2):
+    for i in range(len(packets)):
+    # for i in range(2):
         p = packets[i]
         windows = []
         for wi in range(len(p)):

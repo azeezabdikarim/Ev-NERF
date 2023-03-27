@@ -18,7 +18,7 @@ from load_uzh import load_uzh_data
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(f"Backend: {torch.backends.mps.is_available()}")
 # os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-PYTORCH_ENABLE_MPS_FALLBACK=1
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 print(torch.backends.mps.is_built())
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 # device = torch.device("cpu")
@@ -742,7 +742,7 @@ def train():
     if use_batching:
         # For random ray batching
         print('get rays')
-        rays = np.stack([get_rays_np(H, W, K, p) for p in poses[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        rays = np.stack([get_rays_np(H, W, K, p) for p in pose_pairs[:,0,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         print('done, concats')
         rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
         rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
@@ -899,13 +899,15 @@ def train():
         if i%args.i_testset==0 and i > 0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', poses[i_test].shape)
+            print('test poses shape', pose_pairs[i_test][0].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(poses[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=torch.Tensor(images[i_test]).to(device), savedir=testsavedir)
+                render_path(torch.Tensor(pose_pairs[i_test][0]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=torch.Tensor(images[i_test]).to(device), savedir=testsavedir)
             print('Saved test set')
 
         if i%args.i_print==0:
-            tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
+            # tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
+                tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}")
+
         """
             print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
