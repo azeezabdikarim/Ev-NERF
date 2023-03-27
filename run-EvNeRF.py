@@ -205,6 +205,8 @@ def create_evnerf(args):
                                                                 embed_fn=embed_fn,
                                                                 embeddirs_fn=embeddirs_fn,
                                                                 netchunk=args.netchunk)
+    # set up event_threshold parameter
+    event_threshold = torch.nn.Parameter(torch.tensor(args.event_threshold, device=device, requires_grad=True))
 
     if torch.cuda.device_count() > 1:
         print(f"Using {torch.cuda.device_count()} GPUs")
@@ -219,7 +221,7 @@ def create_evnerf(args):
     #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Create optimizer
-    optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
+    optimizer = torch.optim.Adam(params=[event_threshold]+grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
     start = 0
     basedir = args.basedir
@@ -259,6 +261,7 @@ def create_evnerf(args):
         'use_viewdirs' : args.use_viewdirs,
         'white_bkgd' : args.white_bkgd,
         'raw_noise_std' : args.raw_noise_std,
+        'event_threshold' : event_threshold
     }
 
     # NDC only good for LLFF-style forward facing data
@@ -331,7 +334,7 @@ def render_rays(ray_batch,
                 white_bkgd=False,
                 raw_noise_std=0.,
                 verbose=False,
-                pytest=False):
+                pytest=False, **kwargs):
     """Volumetric rendering.
     Args:
       ray_batch: array of shape [batch_size, ...]. All information necessary
@@ -682,6 +685,7 @@ def train():
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
 
+
     N_iters = 200000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
@@ -759,8 +763,8 @@ def train():
                                                 **render_kwargs_train)
 
         optimizer.zero_grad()
-        threshold = torch.tensor(args.event_threshold, device=device)
-        ev_loss = event_loss(gray1, gray2, target_rays, args.event_threshold)
+        threshold = torch.tensor(render_kwargs_train['event_threshold'], device=device)
+        ev_loss = event_loss(gray1, gray2, target_rays, threshold)
         thresh_loss = threshold_bound_loss(threshold, -threshold)
         # img_loss = img2mse(rgb, target_s)
         # trans = extras['raw'][...,-1]
