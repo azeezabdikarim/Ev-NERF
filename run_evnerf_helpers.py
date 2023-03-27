@@ -4,8 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-
-device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda") if torch.backends.mps.is_available() else torch.device("cpu")
 
 # Misc
 img2mse = lambda x, y : torch.mean((x - y) ** 2)
@@ -264,3 +264,4 @@ def img_from_events(events, width, height):
         event_index += 1
 
     return event_image
+    # return torch.tensor(event_image, device=device)

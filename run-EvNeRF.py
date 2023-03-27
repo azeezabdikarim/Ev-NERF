@@ -15,12 +15,12 @@ from run_evnerf_helpers import *
 
 from load_uzh import load_uzh_data
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(f"Backend: {torch.backends.mps.is_available()}")
 # os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
-print(torch.backends.mps.is_built())
-device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+# os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+# print(torch.backends.mps.is_built())
+# device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 # device = torch.device("cpu")
 
 np.random.seed(0)
@@ -206,6 +206,18 @@ def create_evnerf(args):
                                                                 embeddirs_fn=embeddirs_fn,
                                                                 netchunk=args.netchunk)
 
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs")
+        model = nn.DataParallel(model)
+        if args.N_importance > 0:
+            model_fine = nn.DataParallel(model_fine)
+    # device_ids = [i for i in range(torch.cuda.device_count())]
+    # if len(device_ids) > 1:
+    #     model = nn.DataParallel(model, device_ids=device_ids)
+    #     model_fine = nn.DataParallel(model_fine, device_ids=device_ids)
+    # else:
+    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # Create optimizer
     optimizer = torch.optim.Adam(params=grad_vars, lr=args.lrate, betas=(0.9, 0.999))
 
@@ -260,98 +272,6 @@ def create_evnerf(args):
     render_kwargs_test['raw_noise_std'] = 0.
 
     return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer
-
-# def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
-#     """Transforms model's predictions to semantically meaningful values.
-#     Args:
-#         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
-#         z_vals: [num_rays, num_samples along ray]. Integration time.
-#         rays_d: [num_rays, 3]. Direction of each ray.
-#         device: Device where the tensor should be created.
-#     Returns:
-#         rgb_map: [num_rays, 3]. Estimated RGB color of a ray.
-#         disp_map: [num_rays]. Disparity map. Inverse of depth map.
-#         acc_map: [num_rays]. Sum of weights along each ray.
-#         weights: [num_rays, num_samples]. Weights assigned to each sampled color.
-#         depth_map: [num_rays]. Estimated distance to object.
-#     """
-#     raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
-
-#     dists = z_vals[...,1:] - z_vals[...,:-1]
-#     dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape).to(device)], -1)  # [N_rays, N_samples]
-
-#     dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
-
-#     rgb = torch.sigmoid(raw[...,:3])  # [N_rays, N_samples, 3]
-#     noise = 0.
-#     if raw_noise_std > 0.:
-#         noise = torch.randn(raw[...,3].shape).to(device) * raw_noise_std
-
-#         # Overwrite randomly sampled data if pytest
-#         if pytest:
-#             np.random.seed(0)
-#             noise = np.random.rand(*list(raw[...,3].shape)) * raw_noise_std
-#             noise = torch.Tensor(noise).to(device)
-
-#     alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
-#     # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
-#     weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
-#     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
-
-#     depth_map = torch.sum(weights * z_vals, -1)
-#     disp_map = 1./torch.max(1e-10 * torch.ones_like(depth_map).to(device), depth_map / torch.sum(weights, -1))
-#     acc_map = torch.sum(weights, -1)
-
-#     if white_bkgd:
-#         rgb_map = rgb_map + (1.-acc_map[...,None])
-
-#     return rgb_map, disp_map, acc_map, weights, depth_map
-
-# def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
-#     """Transforms model's predictions to semantically meaningful values.
-#     Args:
-#         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
-#         z_vals: [num_rays, num_samples along ray]. Integration time.
-#         rays_d: [num_rays, 3]. Direction of each ray.
-#         device: Device where the tensor should be created.
-#     Returns:
-#         gray_map: [num_rays, 1]. Estimated gray color of a ray.
-#         disp_map: [num_rays]. Disparity map. Inverse of depth map.
-#         acc_map: [num_rays]. Sum of weights along each ray.
-#         weights: [num_rays, num_samples]. Weights assigned to each sampled color.
-#         depth_map: [num_rays]. Estimated distance to object.
-#     """
-#     raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
-
-#     dists = z_vals[...,1:] - z_vals[...,:-1]
-#     dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape).to(device)], -1)  # [N_rays, N_samples]
-
-#     dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
-
-#     gray = torch.sigmoid(raw[...,0])  # [N_rays, N_samples, 3]
-#     noise = 0.
-#     if raw_noise_std > 0.:
-#         noise = torch.randn(raw[...,1].shape).to(device) * raw_noise_std
-
-#         # Overwrite randomly sampled data if pytest
-#         if pytest:
-#             np.random.seed(0)
-#             noise = np.random.rand(*list(raw[...,1].shape)) * raw_noise_std
-#             noise = torch.Tensor(noise).to(device)
-
-#     alpha = raw2alpha(raw[...,1] + noise, dists)  # [N_rays, N_samples]
-#     # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
-#     weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)).to(device), 1.-alpha + 1e-10], -1), -1)[:, :-1]
-#     gray_map = torch.sum(weights * gray, -2)  # [N_rays, 3]
-
-#     depth_map = torch.sum(weights * z_vals, -1)
-#     disp_map = 1./torch.max(1e-10 * torch.ones_like(depth_map).to(device), depth_map / torch.sum(weights, -1))
-#     acc_map = torch.sum(weights, -1)
-
-#     if white_bkgd:
-#         gray_map = gray_map + (1.-acc_map[...,None])
-
-#     return gray_map, disp_map, acc_map, weights, depth_map
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
     """Transforms model's predictions to semantically meaningful values.
@@ -798,8 +718,8 @@ def train():
             pose2 = pose_pairs[e_i][1,:3,:4]
 
             if N_rand is not None:
-                rays_o1, rays_d1 = get_rays(H, W, K, torch.Tensor(pose1))  # (H, W, 3), (H, W, 3)
-                rays_o2, rays_d2 = get_rays(H, W, K, torch.Tensor(pose2))  # (H, W, 3), (H, W, 3)
+                rays_o1, rays_d1 = get_rays(H, W, K, torch.tensor(pose1, device = device))  # (H, W, 3), (H, W, 3)
+                rays_o2, rays_d2 = get_rays(H, W, K, torch.tensor(pose2, device = device))  # (H, W, 3), (H, W, 3)
 
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
@@ -908,53 +828,10 @@ def train():
             # tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
                 tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}")
 
-        """
-            print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
-            print('iter time {:.05f}'.format(dt))
-
-            with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
-                tf.contrib.summary.scalar('loss', loss)
-                tf.contrib.summary.scalar('psnr', psnr)
-                tf.contrib.summary.histogram('tran', trans)
-                if args.N_importance > 0:
-                    tf.contrib.summary.scalar('psnr0', psnr0)
-
-
-            if i%args.i_img==0:
-
-                # Log a rendered validation view to Tensorboard
-                img_i=np.random.choice(i_val)
-                target = images[img_i]
-                pose = poses[img_i, :3,:4]
-                with torch.no_grad():
-                    rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose,
-                                                        **render_kwargs_test)
-
-                psnr = mse2psnr(img2mse(rgb, target))
-
-                with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-
-                    tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                    tf.contrib.summary.image('disp', disp[tf.newaxis,...,tf.newaxis])
-                    tf.contrib.summary.image('acc', acc[tf.newaxis,...,tf.newaxis])
-
-                    tf.contrib.summary.scalar('psnr_holdout', psnr)
-                    tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
-
-
-                if args.N_importance > 0:
-
-                    with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
-                        tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
-                        tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
-        """
-
         global_step += 1
 
 
+# if __name__=='__main__':
+#     torch.set_default_tensor_type('torch.cuda.FloatTensor')
+#     train()
 train()
-
-
-
-        
