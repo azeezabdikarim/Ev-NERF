@@ -15,12 +15,12 @@ from run_evnerf_helpers import *
 
 from load_uzh import load_uzh_data
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(f"Backend: {torch.backends.mps.is_available()}")
-# os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 # os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 # print(torch.backends.mps.is_built())
-# device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 # device = torch.device("cpu")
 
 np.random.seed(0)
@@ -607,7 +607,7 @@ def train():
     H, W, focal = hwf
     H, W = int(H), int(W)
     hwf = [H, W, focal]
-    hwf = torch.tensor(hwf, device = device)
+    hwf = torch.tensor(hwf, device = device, dtype=torch.float32)
 
     near = 0.1
     far = 10
@@ -725,8 +725,10 @@ def train():
             pose2 = pose_pairs[e_i][1,:3,:4]
 
             if N_rand is not None:
-                rays_o1, rays_d1 = get_rays(H, W, K, torch.tensor(pose1, device = device))  # (H, W, 3), (H, W, 3)
-                rays_o2, rays_d2 = get_rays(H, W, K, torch.tensor(pose2, device = device))  # (H, W, 3), (H, W, 3)
+                # rays_o1, rays_d1 = get_rays(H, W, K, torch.tensor(pose1, device = device))  # (H, W, 3), (H, W, 3)
+                # rays_o2, rays_d2 = get_rays(H, W, K, torch.tensor(pose2, device = device))  # (H, W, 3), (H, W, 3)
+                rays_o1, rays_d1 = get_rays(H, W, K, pose1)  # (H, W, 3), (H, W, 3)
+                rays_o2, rays_d2 = get_rays(H, W, K, pose2)  # (H, W, 3), (H, W, 3)
 
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
