@@ -116,6 +116,7 @@ class EvNeRF(nn.Module):
                 h = F.relu(h)
 
             gray = self.gray_linear(h)
+            gray = torch.sigmoid(self.gray_linear(h))*255
             outputs = torch.cat([gray, alpha], -1)
         else:
             outputs = self.output_linear(h)

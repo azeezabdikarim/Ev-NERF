@@ -274,7 +274,7 @@ def create_evnerf(args):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['raw_noise_std'] = 0.
 
-    return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer
+    return render_kwargs_train, render_kwargs_test, event_threshold, start, grad_vars, optimizer
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
     """Transforms model's predictions to semantically meaningful values.
@@ -630,7 +630,7 @@ def train():
             file.write(open(args.config, 'r').read())
 
     # Create nerf model
-    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_evnerf(args)
+    render_kwargs_train, render_kwargs_test, event_threshold, start, grad_vars, optimizer = create_evnerf(args)
     global_step = start
 
     bds_dict = {
@@ -766,7 +766,7 @@ def train():
                                                 **render_kwargs_train)
 
         optimizer.zero_grad()
-        threshold = torch.tensor(render_kwargs_train['event_threshold'], device=device)
+        threshold = event_threshold
         ev_loss = event_loss(gray1, gray2, target_rays, threshold)
         thresh_loss = threshold_bound_loss(threshold, -threshold)
         # img_loss = img2mse(rgb, target_s)
