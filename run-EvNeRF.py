@@ -421,7 +421,7 @@ def render_rays(ray_batch,
     if retraw:
         ret['raw'] = raw
     if N_importance > 0:
-        ret['rgb0'] = gray_map_0
+        ret['gray0'] = gray_map_0
         ret['disp0'] = disp_map_0
         ret['acc0'] = acc_map_0
         ret['z_std'] = torch.std(z_samples, dim=-1, unbiased=False)  # [N_rays]
@@ -571,7 +571,7 @@ def event_threshold(x, threshold):
     return result
 
 def event_loss(gray1, gray2, target_rays, threshold):
-    delta_l = gray2 - gray1
+    delta_l = torch.log(gray2) - torch.log(gray1)
     threshold = torch.tensor(threshold, device=device)
     #calcualte the mse between the target rays and the luminoisity change
     ev_loss = torch.sum(event_threshold((delta_l - target_rays), (-threshold, threshold)))
@@ -590,8 +590,8 @@ def threshold_bound_loss(Bj_plus, Bj_minus, B0_plus=torch.tensor(0.3, device=dev
     Returns:
         torch.Tensor. The threshold bound loss.
     """
-    term1 = F.relu(B0_plus, - Bj_plus).sum()
-    term2 = F.relu(Bj_minus - B0_minus).sum()
+    term1 = F.relu(B0_plus - Bj_plus)
+    term2 = F.relu(Bj_minus - B0_minus)
 
     return term1 + term2
 
@@ -601,11 +601,13 @@ def train():
     args = parser.parse_args()
 
     events_list, pose_pairs, render_poses, image_pairs, hwf, i_split, K = load_uzh_data()
+    render_poses = torch.tensor(render_poses, device = device)
     i_train, i_val, i_test = i_split
      # Cast intrinsics to right types
     H, W, focal = hwf
     H, W = int(H), int(W)
     hwf = [H, W, focal]
+    hwf = torch.tensor(hwf, device = device)
 
     near = 0.1
     far = 10
@@ -653,9 +655,9 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', render_poses.shape)
 
-            rgbs, _ = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test, gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
+            grays, _ = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test, gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
             print('Done rendering', testsavedir)
-            imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(grays), fps=30, quality=8)
 
             return
 
@@ -667,13 +669,13 @@ def train():
         print('get rays')
         rays = np.stack([get_rays_np(H, W, K, p) for p in pose_pairs[:,0,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         print('done, concats')
-        rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
-        rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-        rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
-        rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
-        rays_rgb = rays_rgb.astype(np.float32)
+        rays_gray = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
+        rays_gray = np.transpose(rays_gray, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
+        rays_gray = np.stack([rays_gray[i] for i in i_train], 0) # train images only
+        rays_gray = np.reshape(rays_gray, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
+        rays_gray = rays_gray.astype(np.float32)
         print('shuffle rays')
-        np.random.shuffle(rays_rgb)
+        np.random.shuffle(rays_gray)
 
         print('done')
         i_batch = 0
@@ -683,10 +685,11 @@ def train():
         images = torch.Tensor(images).to(device)
     pose_pairs = torch.Tensor(pose_pairs).to(device)
     if use_batching:
-        rays_rgb = torch.Tensor(rays_rgb).to(device)
+        rays_gray = torch.Tensor(rays_gray).to(device)
 
 
     N_iters = 200000 + 1
+    # N_iters=5
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -702,15 +705,15 @@ def train():
         # Sample random ray batch
         if use_batching:
             # Random over all images
-            batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
+            batch = rays_gray[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
             batch = torch.transpose(batch, 0, 1)
             batch_rays, target_s = batch[:2], batch[2]
 
             i_batch += N_rand
-            if i_batch >= rays_rgb.shape[0]:
+            if i_batch >= rays_gray.shape[0]:
                 print("Shuffle data after an epoch!")
-                rand_idx = torch.randperm(rays_rgb.shape[0])
-                rays_rgb = rays_rgb[rand_idx]
+                rand_idx = torch.randperm(rays_gray.shape[0])
+                rays_gray = rays_gray[rand_idx]
                 i_batch = 0
 
         else:
@@ -770,7 +773,7 @@ def train():
         # trans = extras['raw'][...,-1]
         loss = ev_loss + thresh_loss
         # psnr = mse2psnr(img_loss)
- 
+
         
         # if 'rgb0' in extras:
         #     img_loss0 = img2mse(extras['rgb0'].to(device), target_s.to(device))
@@ -807,10 +810,10 @@ def train():
         if i%args.i_video==0 and i > 0:
             # Turn on testing mode
             with torch.no_grad():
-                rgbs, disps = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test)
-            print('Done, saving', rgbs.shape, disps.shape)
+                grays, disps = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test)
+            print('Done, saving', grays.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
-            imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
+            imageio.mimwrite(moviebase + 'gray.mp4', to8b(grays), fps=30, quality=8)
             imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=30, quality=8)
 
             # if args.use_viewdirs:
@@ -825,7 +828,7 @@ def train():
             os.makedirs(testsavedir, exist_ok=True)
             print('test poses shape', pose_pairs[i_test][0].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(pose_pairs[i_test][0]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=torch.Tensor(images[i_test]).to(device), savedir=testsavedir)
+                render_path(torch.tensor(pose_pairs[i_test][0], device=device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=torch.tensor(img_from_events(events_list[i_test], W, H), device=device), savedir=testsavedir)
             print('Saved test set')
 
         if i%args.i_print==0:
@@ -838,4 +841,6 @@ def train():
 # if __name__=='__main__':
 #     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 #     train()
+
 train()
+

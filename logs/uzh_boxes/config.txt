@@ -2,7 +2,7 @@ expname = uzh_boxes
 basedir = ./logs
 datadir = ./data/nerf_synthetic/uzh_boxes
 dataset_type = uhh
-event_threshold = 0.3
+event_threshold = 0.2
 
 no_batching = True
 
@@ -11,11 +11,12 @@ white_bkgd = True
 lrate_decay = 500
 
 N_samples = 64
-N_importance = 128
+#N_importance = 128
 N_rand = 1024
 
 precrop_iters = 500
 precrop_frac = 0.5
 
-half_res = True
-
+half_res = False
+i_video = 500
+i_testset = 100000

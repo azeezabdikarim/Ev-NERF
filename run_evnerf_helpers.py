@@ -97,6 +97,7 @@ class EvNeRF(nn.Module):
             self.output_linear = nn.Linear(W, output_ch).to(device)
 
     def forward(self, x):
+        # with torch.autograd.profiler.profile(enabled=True, use_cuda=True) as prof:
         input_pts, input_views = torch.split(x, [self.input_ch, self.input_ch_views], dim=-1)
         h = input_pts
         for i, l in enumerate(self.pts_linears):
@@ -118,7 +119,7 @@ class EvNeRF(nn.Module):
             outputs = torch.cat([gray, alpha], -1)
         else:
             outputs = self.output_linear(h)
-
+        # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
         return outputs    
 
     # def load_weights_from_keras(self, weights):
@@ -153,6 +154,7 @@ class EvNeRF(nn.Module):
         
 # Ray helpers
 def get_rays(H, W, K, c2w):
+    H, W = int(H), int(W)
     i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
     i = i.t()
     j = j.t()
